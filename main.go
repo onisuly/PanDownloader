@@ -20,12 +20,14 @@ import (
 )
 
 const (
-	confName = "pandownloader.cfg"
-	preSplit = uint64(10240)
-	preSize  = uint64(32)
+	confName   = "pandownloader.cfg"
+	preSplit   = uint64(10240)
+	preSize    = uint64(32)
+	panErrSize = 200
 )
 
 var downloadSize = 0
+var client *http.Client
 
 var url = flag.String("url", "", "url to download")
 var split = flag.Uint64("split", preSplit, "file split count")
@@ -36,6 +38,8 @@ var debug = flag.Bool("debug", false, "enable debug mode")
 func init() {
 	flag.Parse()
 	loadConf()
+
+	client = &http.Client{}
 }
 
 func main() {
@@ -46,28 +50,9 @@ func main() {
 }
 
 func parallelDownload(url string, split uint64, chunkSize uint64) error {
-	client := &http.Client{}
-
-	req, err := http.NewRequest("HEAD", url, nil)
+	filename, length, err := parseHeader(url)
 	if err != nil {
 		return err
-	}
-	req.AddCookie(&http.Cookie{Name: "BDUSS", Value: *bduss})
-
-	res, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-
-	maps := res.Header
-	var filename string
-	if maps["Content-Disposition"] != nil {
-		if _, params, err := mime.ParseMediaType(maps["Content-Disposition"][0]); err == nil {
-			filename = params["filename"]
-		}
-	}
-	if filename == "" {
-		filename = strings.Split(path.Base(url), "?")[0]
 	}
 
 	file, err := os.Create(filename)
@@ -75,11 +60,6 @@ func parallelDownload(url string, split uint64, chunkSize uint64) error {
 		return err
 	}
 	defer file.Close()
-
-	length, err := strconv.ParseUint(maps["Content-Length"][0], 10, 64)
-	if err != nil {
-		return err
-	}
 
 	fmt.Printf("File size: %s\n", humanReadableByteCount(length))
 	if length < uint64(chunkSize) {
@@ -120,8 +100,6 @@ func parallelDownload(url string, split uint64, chunkSize uint64) error {
 }
 
 func download(url string, file *os.File, start uint64, end uint64, chunkSize uint64) error {
-	client := &http.Client{}
-
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return err
@@ -135,7 +113,7 @@ func download(url string, file *os.File, start uint64, end uint64, chunkSize uin
 	}
 	defer resp.Body.Close()
 
-	if resp.ContentLength < 200 {
+	if resp.ContentLength < panErrSize {
 		bytes, _ := ioutil.ReadAll(resp.Body)
 		var panErr panError
 		err := json.Unmarshal(bytes, &panErr)
@@ -161,6 +139,46 @@ func download(url string, file *os.File, start uint64, end uint64, chunkSize uin
 	}
 
 	return nil
+}
+
+func parseHeader(url string) (filename string, length uint64, err error) {
+	req, err := http.NewRequest("HEAD", url, nil)
+	if err != nil {
+		return "", 0, err
+	}
+	req.AddCookie(&http.Cookie{Name: "BDUSS", Value: *bduss})
+
+	res, err := client.Do(req)
+	if err != nil {
+		return "", 0, err
+	}
+
+	maps := res.Header
+	length, err = strconv.ParseUint(maps["Content-Length"][0], 10, 64)
+	if err != nil {
+		return "", 0, err
+	}
+
+	if length < panErrSize {
+		resp, _ := client.Get(url)
+		bytes, _ := ioutil.ReadAll(resp.Body)
+		var panErr panError
+		err := json.Unmarshal(bytes, &panErr)
+		if err == nil && panErr.ErrorCode != 0 {
+			return "", 0, errors.New(panErr.ErrorMsg)
+		}
+	}
+
+	if maps["Content-Disposition"] != nil {
+		if _, params, err := mime.ParseMediaType(maps["Content-Disposition"][0]); err == nil {
+			filename = params["filename"]
+		}
+	}
+	if filename == "" {
+		filename = strings.Split(path.Base(url), "?")[0]
+	}
+
+	return filename, length, nil
 }
 
 func loadConf() {
