@@ -45,7 +45,7 @@ func init() {
 func main() {
 	err := parallelDownload(*url, *split, *size)
 	if err != nil {
-		panic(err)
+		log.Fatalln(err)
 	}
 }
 
