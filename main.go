@@ -26,7 +26,6 @@ const (
 	panErrSize = 200
 )
 
-var downloadSize = 0
 var client *http.Client
 
 var url = flag.String("url", "", "url to download")
@@ -75,6 +74,8 @@ func parallelDownload(url string, split uint64, chunkSize uint64) error {
 	extra := length % split
 
 	fmt.Println("download start")
+	downloadedCount := 0
+	printProgress(&downloadedCount)
 	var wg sync.WaitGroup
 	for i := uint64(0); i < split; i++ {
 		wg.Add(1)
@@ -93,7 +94,7 @@ func parallelDownload(url string, split uint64, chunkSize uint64) error {
 				}
 				err = download(url, file, start, end, chunkSize)
 			}
-			printProgress()
+			printProgress(&downloadedCount)
 			wg.Done()
 		}(start, end, chunkSize)
 	}
@@ -218,8 +219,8 @@ func loadConf() {
 	}
 }
 
-func printProgress() {
-	downloadSize++
+func printProgress(downloadedCount *int) {
 	fmt.Print("\033[2K")
-	fmt.Printf("\r%d / %d blocks downloaded", downloadSize, *split)
+	fmt.Printf("\r%d / %d blocks downloaded", *downloadedCount, *split)
+	*downloadedCount++
 }
