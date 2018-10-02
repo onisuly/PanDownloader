@@ -5,4 +5,5 @@ type panConf struct {
 	Split uint64
 	Size  uint64
 	BDUSS string
+	Dir   string
 }

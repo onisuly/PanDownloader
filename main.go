@@ -33,6 +33,7 @@ var url = flag.String("url", "", "url to download")
 var split = flag.Uint64("split", preSplit, "file split count")
 var size = flag.Uint64("chunksize", preSize, "chunk size")
 var bduss = flag.String("bduss", "", "BDUSS cookie")
+var dir = flag.String("dir", "", "download dir")
 var debug = flag.Bool("debug", false, "enable debug mode")
 
 func init() {
@@ -55,7 +56,7 @@ func parallelDownload(url string, split uint64, chunkSize uint64) error {
 		return err
 	}
 
-	file, err := os.Create(filename)
+	file, err := os.Create(path.Join(*dir, filename))
 	if err != nil {
 		return err
 	}
@@ -206,6 +207,9 @@ func loadConf() {
 		}
 		if *bduss == "" {
 			*bduss = cfg.BDUSS
+		}
+		if *dir == "" {
+			*dir = cfg.Dir
 		}
 	}
 }

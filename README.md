@@ -10,6 +10,8 @@ Usage of PanDownloader:
         chunk size (default 32)
   -debug
         enable debug mode
+  -dir string
+        download dir
   -split uint
         file split count (default 10240)
   -url string
