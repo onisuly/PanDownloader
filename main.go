@@ -21,8 +21,8 @@ import (
 
 const (
 	confName   = "pandownloader.cfg"
-	preSplit   = uint64(10240)
-	preSize    = uint64(32)
+	preSplit   = uint64(32)
+	preSize    = uint64(10240)
 	panErrSize = 200
 )
 
@@ -37,7 +37,11 @@ var dir = flag.String("dir", "", "download dir")
 var debug = flag.Bool("debug", false, "enable debug mode")
 
 func init() {
-	flag.Parse()
+	if len(os.Args) == 2 {
+		*url = os.Args[1]
+	} else {
+		flag.Parse()
+	}
 	loadConf()
 
 	client = &http.Client{}
