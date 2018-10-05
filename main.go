@@ -20,13 +20,13 @@ import (
 )
 
 const (
-	confName   = "pandownloader.json"
-	panErrSize = 200
+	confName      = "pandownloader.json"
+	panErrMaxSize = 200
 )
 
 var client *http.Client
 
-var url = flag.String("url", "", "url to download")
+var url = flag.String("url", "", "url to download, required")
 var split = flag.Uint64("split", 32, "file split count")
 var size = flag.Uint64("size", 102400, "chunk size")
 var bduss = flag.String("bduss", "", "BDUSS cookie")
@@ -34,17 +34,21 @@ var dir = flag.String("dir", "", "download dir")
 var debug = flag.Bool("debug", false, "enable debug mode")
 
 func init() {
-	if len(os.Args) == 2 {
-		*url = os.Args[1]
-	} else {
-		flag.Parse()
-	}
+	flag.Parse()
 	loadConf()
 
 	client = &http.Client{}
 }
 
 func main() {
+	if len(os.Args) == 2 {
+		*url = os.Args[1]
+	}
+	if *url == "" {
+		flag.PrintDefaults()
+		os.Exit(1)
+	}
+
 	err := parallelDownload(*url, *split, *size)
 	if err != nil {
 		log.Fatalln(err)
@@ -117,7 +121,7 @@ func download(url string, file *os.File, start uint64, end uint64, chunkSize uin
 	}
 	defer resp.Body.Close()
 
-	if resp.ContentLength < panErrSize {
+	if resp.ContentLength < panErrMaxSize {
 		bytes, _ := ioutil.ReadAll(resp.Body)
 		var panErr panError
 		err := json.Unmarshal(bytes, &panErr)
@@ -163,7 +167,7 @@ func parseHeader(url string) (filename string, length uint64, err error) {
 		return "", 0, err
 	}
 
-	if length < panErrSize {
+	if length < panErrMaxSize {
 		resp, _ := client.Get(url)
 		bytes, _ := ioutil.ReadAll(resp.Body)
 		var panErr panError
