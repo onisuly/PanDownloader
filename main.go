@@ -20,9 +20,9 @@ import (
 )
 
 const (
-	confName   = "pandownloader.cfg"
+	confName   = "pandownloader.json"
 	preSplit   = uint64(32)
-	preSize    = uint64(10240)
+	preSize    = uint64(102400)
 	panErrSize = 200
 )
 
