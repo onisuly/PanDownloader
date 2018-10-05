@@ -6,14 +6,14 @@
 Usage of PanDownloader:
   -bduss string
         BDUSS cookie
-  -chunksize uint
+  -size uint
         chunk size (default 32)
   -debug
         enable debug mode
   -dir string
         download dir
   -split uint
-        file split count (default 10240)
+        file split count (default 102400)
   -url string
         url to download
 ```
@@ -30,7 +30,8 @@ Usage of PanDownloader:
 ```json
 {
     "bduss": "",
-    "split": 128,
+    "dir": "",
+    "split": 32,
     "size": 102400
 }
 ```

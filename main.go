@@ -21,16 +21,14 @@ import (
 
 const (
 	confName   = "pandownloader.json"
-	preSplit   = uint64(32)
-	preSize    = uint64(102400)
 	panErrSize = 200
 )
 
 var client *http.Client
 
 var url = flag.String("url", "", "url to download")
-var split = flag.Uint64("split", preSplit, "file split count")
-var size = flag.Uint64("chunksize", preSize, "chunk size")
+var split = flag.Uint64("split", 32, "file split count")
+var size = flag.Uint64("size", 102400, "chunk size")
 var bduss = flag.String("bduss", "", "BDUSS cookie")
 var dir = flag.String("dir", "", "download dir")
 var debug = flag.Bool("debug", false, "enable debug mode")
@@ -201,19 +199,19 @@ func loadConf() {
 			return
 		}
 
-		if *url == "" {
-			*url = cfg.URL
-		}
-		if cfg.Split != 0 && *split == preSplit {
+		flagSet := make(map[string]bool)
+		flag.Visit(func(f *flag.Flag) { flagSet[f.Name] = true })
+
+		if cfg.Split != 0 && !flagSet["split"] {
 			*split = cfg.Split
 		}
-		if cfg.Size != 0 && *size == preSize {
+		if cfg.Size != 0 && !flagSet["size"] {
 			*size = cfg.Size
 		}
-		if *bduss == "" {
+		if !flagSet["bduss"] {
 			*bduss = cfg.BDUSS
 		}
-		if *dir == "" {
+		if !flagSet["dir"] {
 			*dir = cfg.Dir
 		}
 	}
