@@ -19,10 +19,7 @@ import (
 	"sync"
 )
 
-const (
-	confName      = "pandownloader.json"
-	panErrMaxSize = 200
-)
+const confName = "pandownloader.json"
 
 var client *http.Client
 
@@ -125,13 +122,9 @@ func download(url string, file *os.File, start uint64, end uint64, chunkSize uin
 	}
 	defer resp.Body.Close()
 
-	if resp.ContentLength < panErrMaxSize {
+	if resp.StatusCode != 206 {
 		bytes, _ := ioutil.ReadAll(resp.Body)
-		var panErr panError
-		err := json.Unmarshal(bytes, &panErr)
-		if err == nil && panErr.ErrorCode != 0 {
-			return errors.New(panErr.ErrorMsg)
-		}
+		return errors.New(string(bytes))
 	}
 
 	reader := bufio.NewReader(resp.Body)
@@ -165,20 +158,17 @@ func parseHeader(url string) (filename string, length uint64, err error) {
 		return "", 0, err
 	}
 
+	if res.StatusCode != 200 {
+		resp, _ := client.Get(url)
+		defer resp.Body.Close()
+		bytes, _ := ioutil.ReadAll(resp.Body)
+		return "", 0, errors.New(string(bytes))
+	}
+
 	maps := res.Header
 	length, err = strconv.ParseUint(maps["Content-Length"][0], 10, 64)
 	if err != nil {
 		return "", 0, err
-	}
-
-	if length < panErrMaxSize {
-		resp, _ := client.Get(url)
-		bytes, _ := ioutil.ReadAll(resp.Body)
-		var panErr panError
-		err := json.Unmarshal(bytes, &panErr)
-		if err == nil && panErr.ErrorCode != 0 {
-			return "", 0, errors.New(panErr.ErrorMsg)
-		}
 	}
 
 	if maps["Content-Disposition"] != nil {
