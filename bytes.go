@@ -13,7 +13,7 @@ const (
 	TERABYTE
 )
 
-func humanReadableByteCount(bytes uint64) string {
+func formatBytes(bytes uint64) string {
 	unit := ""
 	value := float64(bytes)
 

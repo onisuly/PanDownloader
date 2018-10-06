@@ -17,11 +17,11 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 )
 
 const confName = "pandownloader.json"
-
-var client *http.Client
 
 var url = flag.String("url", "", "url to download, required")
 var split = flag.Uint64("split", 32, "file split count")
@@ -32,10 +32,7 @@ var dir = flag.String("dir", "", "download dir")
 var debug = flag.Bool("debug", false, "enable debug mode")
 
 func init() {
-	flag.Parse()
 	loadConf()
-
-	client = &http.Client{}
 }
 
 func main() {
@@ -68,7 +65,7 @@ func parallelDownload(url string, name string, split uint64, chunkSize uint64) e
 	}
 	defer file.Close()
 
-	fmt.Printf("File size: %s\n", humanReadableByteCount(length))
+	fmt.Printf("file size: %s\n", formatBytes(length))
 	if length < uint64(chunkSize) {
 		chunkSize = length
 		split = 1
@@ -76,9 +73,9 @@ func parallelDownload(url string, name string, split uint64, chunkSize uint64) e
 	lenSub := length / split
 	extra := length % split
 
-	fmt.Println("download start")
-	downloadedCount := 0
-	printProgress(&downloadedCount)
+	fmt.Printf("download start, total %d block(s)\n", split)
+	startTime := time.Now()
+	var downloadedSize uint64 = 0
 	var wg sync.WaitGroup
 	for i := uint64(0); i < split; i++ {
 		wg.Add(1)
@@ -90,25 +87,36 @@ func parallelDownload(url string, name string, split uint64, chunkSize uint64) e
 			end += extra
 		}
 
-		go func(start uint64, end uint64, chunkSize uint64) {
-			for err := download(url, file, start, end, chunkSize); err != nil; {
+		go func(start uint64, end uint64, chunkSize uint64, downloadedSize *uint64) {
+			for err := download(url, file, start, end, chunkSize, downloadedSize); err != nil; {
 				if *debug {
 					log.Println(err)
 				}
-				err = download(url, file, start, end, chunkSize)
+				err = download(url, file, start, end, chunkSize, downloadedSize)
 			}
-			printProgress(&downloadedCount)
 			wg.Done()
-		}(start, end, chunkSize)
+		}(start, end, chunkSize, &downloadedSize)
 	}
+
+	wg.Add(1)
+	go func(wg *sync.WaitGroup) {
+		var oneSecondSize uint64 = 0
+		var preDownloadSize uint64 = 0
+		for range time.Tick(time.Second) {
+			oneSecondSize = downloadedSize - preDownloadSize
+			preDownloadSize = downloadedSize
+			printProgress(downloadedSize, oneSecondSize, length, wg)
+		}
+	}(&wg)
 
 	wg.Wait()
 
-	fmt.Println("\ndownload completed")
+	fmt.Printf("\ndownload completed, time elapsed: %s, average speed: %s/s\n", time.Since(startTime),
+		formatBytes(length/uint64(time.Since(startTime).Seconds())))
 	return nil
 }
 
-func download(url string, file *os.File, start uint64, end uint64, chunkSize uint64) error {
+func download(url string, file *os.File, start uint64, end uint64, chunkSize uint64, downloadedSize *uint64) error {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return err
@@ -116,6 +124,7 @@ func download(url string, file *os.File, start uint64, end uint64, chunkSize uin
 	req.Header.Add("Range", fmt.Sprintf("bytes=%d-%d", start, end))
 	req.AddCookie(&http.Cookie{Name: "BDUSS", Value: *bduss})
 
+	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -136,6 +145,7 @@ func download(url string, file *os.File, start uint64, end uint64, chunkSize uin
 		file.WriteAt(part[:count], int64(position))
 		position += uint64(count)
 
+		atomic.AddUint64(downloadedSize, uint64(count))
 		if err == io.EOF {
 			break
 		} else if err != nil {
@@ -153,6 +163,7 @@ func parseHeader(url string) (filename string, length uint64, err error) {
 	}
 	req.AddCookie(&http.Cookie{Name: "BDUSS", Value: *bduss})
 
+	client := &http.Client{}
 	res, err := client.Do(req)
 	if err != nil {
 		return "", 0, err
@@ -184,6 +195,8 @@ func parseHeader(url string) (filename string, length uint64, err error) {
 }
 
 func loadConf() {
+	flag.Parse()
+
 	ex, _ := os.Executable()
 	confPath := path.Join(filepath.Dir(ex), confName)
 	if _, err := os.Stat(confPath); !os.IsNotExist(err) {
@@ -215,8 +228,11 @@ func loadConf() {
 	}
 }
 
-func printProgress(downloadedCount *int) {
+func printProgress(downloadedSize uint64, oneSecondSize uint64, length uint64, wg *sync.WaitGroup) {
 	fmt.Print("\033[2K")
-	fmt.Printf("\r%d / %d blocks downloaded", *downloadedCount, *split)
-	*downloadedCount++
+	fmt.Printf("\r%s / %s downloaded, speed: %s/s", formatBytes(downloadedSize), formatBytes(length),
+		formatBytes(oneSecondSize))
+	if downloadedSize >= length {
+		wg.Done()
+	}
 }
