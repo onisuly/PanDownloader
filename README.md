@@ -6,16 +6,18 @@
 Usage of PanDownloader:
   -bduss string
         BDUSS cookie
-  -size uint
-        chunk size (default 32)
   -debug
         enable debug mode
   -dir string
         download dir
+  -name string
+        download file name
+  -size uint
+        chunk size (default 102400)
   -split uint
-        file split count (default 102400)
+        file split count (default 32)
   -url string
-        url to download
+        url to download, required
 ```
 
 示例：
