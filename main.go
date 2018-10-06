@@ -29,6 +29,7 @@ var client *http.Client
 var url = flag.String("url", "", "url to download, required")
 var split = flag.Uint64("split", 32, "file split count")
 var size = flag.Uint64("size", 102400, "chunk size")
+var name = flag.String("name", "", "download file name")
 var bduss = flag.String("bduss", "", "BDUSS cookie")
 var dir = flag.String("dir", "", "download dir")
 var debug = flag.Bool("debug", false, "enable debug mode")
@@ -49,16 +50,19 @@ func main() {
 		os.Exit(1)
 	}
 
-	err := parallelDownload(*url, *split, *size)
+	err := parallelDownload(*url, *name, *split, *size)
 	if err != nil {
 		log.Fatalln(err)
 	}
 }
 
-func parallelDownload(url string, split uint64, chunkSize uint64) error {
+func parallelDownload(url string, name string, split uint64, chunkSize uint64) error {
 	filename, length, err := parseHeader(url)
 	if err != nil {
 		return err
+	}
+	if name != "" {
+		filename = name
 	}
 
 	file, err := os.Create(path.Join(*dir, filename))
