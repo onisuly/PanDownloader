@@ -21,15 +21,15 @@ import (
 	"time"
 )
 
-type conf struct {
-	URL   string
-	Size  uint64
-	Block uint64
-	Chunk uint64
-	Name  string
-	BDUSS string
-	Dir   string
-	Debug bool
+type param struct {
+	url   string
+	size  uint64
+	block uint64
+	chunk uint64
+	name  string
+	bduss string
+	dir   string
+	debug bool
 }
 
 type task struct {
@@ -42,48 +42,48 @@ type task struct {
 	bduss          string
 }
 
-const confFile = "pandownloader.json"
+const cfgFileName = "pandownloader.json"
 
 func main() {
-	err := parallelDownload(initConf(confFile))
+	err := parallelDownload(parseParams(cfgFileName))
 	if err != nil {
 		log.Fatalln(err)
 	}
 }
 
-func parallelDownload(cfg conf) error {
-	filename, length, err := parseHeader(cfg.URL, cfg.BDUSS)
+func parallelDownload(cfg param) error {
+	filename, length, err := parseHeader(cfg.url, cfg.bduss)
 	if err != nil {
 		return err
 	}
-	if cfg.Name != "" {
-		filename = cfg.Name
+	if cfg.name != "" {
+		filename = cfg.name
 	}
 
-	file, err := os.Create(path.Join(cfg.Dir, filename))
+	file, err := os.Create(path.Join(cfg.dir, filename))
 	if err != nil {
 		return err
 	}
 	defer file.Close()
 
 	fmt.Printf("file size: %s\n", formatBytes(length))
-	if length < cfg.Block*cfg.Size {
-		cfg.Block = map[bool]uint64{true: length / cfg.Size, false: 1}[length/cfg.Size > 0]
+	if length < cfg.block*cfg.size {
+		cfg.block = map[bool]uint64{true: length / cfg.size, false: 1}[length/cfg.size > 0]
 	}
 
 	fmt.Printf("download start")
 	startTime := time.Now()
 	var downloadedSize uint64 = 0
-	tasks := createTasks(cfg.URL, file, length, cfg.Block, cfg.Chunk, &downloadedSize)
+	tasks := createTasks(cfg.url, file, length, cfg.block, cfg.chunk, &downloadedSize)
 
 	var wg sync.WaitGroup
-	for i := uint64(0); i < cfg.Size; i++ {
+	for i := uint64(0); i < cfg.size; i++ {
 		wg.Add(1)
 
 		go func(tasks chan task) {
 			for t := range tasks {
 				for err := download(t); err != nil; {
-					if cfg.Debug {
+					if cfg.debug {
 						log.Println(err)
 					}
 					err = download(t)
@@ -213,7 +213,7 @@ func parseHeader(url string, bduss string) (filename string, length uint64, err 
 	return filename, length, nil
 }
 
-func initConf(confFileName string) conf {
+func parseParams(confFileName string) param {
 	var url = flag.String("url", "", "url to download, required")
 	var size = flag.Uint64("size", 32, "concurrent downloads size")
 	var block = flag.Uint64("block", 20971520, "max block size")
@@ -232,25 +232,25 @@ func initConf(confFileName string) conf {
 		os.Exit(1)
 	}
 
-	var paramCfg = conf{
-		URL:   *url,
-		Size:  *size,
-		Block: *block,
-		Chunk: *chunk,
-		Name:  *name,
-		BDUSS: *bduss,
-		Dir:   *dir,
-		Debug: *debug,
+	var p = param{
+		url:   *url,
+		size:  *size,
+		block: *block,
+		chunk: *chunk,
+		name:  *name,
+		bduss: *bduss,
+		dir:   *dir,
+		debug: *debug,
 	}
 
 	flagSet := make(map[string]bool)
 	flag.Visit(func(f *flag.Flag) { flagSet[f.Name] = true })
 
-	return loadConfFromFile(paramCfg, confFileName, flagSet)
+	return updateParamsWithCfgFile(p, confFileName, flagSet)
 }
 
-func loadConfFromFile(paramCfg conf, confFileName string, flagSet map[string]bool) (result conf) {
-	result = paramCfg
+func updateParamsWithCfgFile(p param, confFileName string, flagSet map[string]bool) (result param) {
+	result = p
 
 	ex, _ := os.Executable()
 	confPath := path.Join(filepath.Dir(ex), confFileName)
@@ -259,26 +259,26 @@ func loadConfFromFile(paramCfg conf, confFileName string, flagSet map[string]boo
 		if err != nil {
 			return
 		}
-		var fileCfg conf
+		var fileCfg cfgFile
 		err = json.Unmarshal(bytes, &fileCfg)
 		if err != nil {
 			return
 		}
 
 		if fileCfg.Size != 0 && !flagSet["size"] {
-			result.Size = fileCfg.Size
+			result.size = fileCfg.Size
 		}
 		if fileCfg.Block != 0 && !flagSet["block"] {
-			result.Block = fileCfg.Block
+			result.block = fileCfg.Block
 		}
 		if fileCfg.Chunk != 0 && !flagSet["chunk"] {
-			result.Chunk = fileCfg.Chunk
+			result.chunk = fileCfg.Chunk
 		}
 		if !flagSet["bduss"] {
-			result.BDUSS = fileCfg.BDUSS
+			result.bduss = fileCfg.BDUSS
 		}
 		if !flagSet["dir"] {
-			result.Dir = fileCfg.Dir
+			result.dir = fileCfg.Dir
 		}
 	}
 
