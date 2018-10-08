@@ -3,26 +3,33 @@
 
 使用方法：
 ```shell
-Usage of PanDownloader:
+Usage of pandownloader:
   -bduss string
-        BDUSS cookie
+    	BDUSS cookie
+  -block uint
+    	max block size (default 20971520)
+  -chunk uint
+    	max chunk size (default 1048576)
   -debug
-        enable debug mode
+    	enable debug mode
   -dir string
-        download dir
+    	download dir
   -name string
-        download file name
+    	download file name
   -size uint
-        chunk size (default 102400)
-  -split uint
-        file split count (default 32)
+    	concurrent downloads size (default 32)
   -url string
-        url to download, required
+    	url to download, required
 ```
 
-示例：
+示例：  
+使用默认配置下载
 ```shell
-./PanDownloader-linux-amd64 -url a_direct_download_link
+./PanDownloader-linux-amd64 a_direct_download_link
+```
+自定义并发下载数量
+```shell
+./PanDownloader-linux-amd64 -url a_direct_download_link -size 128
 ```
 
 > 如果需要下载自己网盘中未分享的文件，需要指定BDUSS cookie，可以在浏览器baidu.com的cookie中找到，下载自己网盘内的非分享文件会被百度限制多线程下载的并发数量，所以**下载别人分享的文件时最好不要指定cookie，会影响下载速度**
@@ -31,10 +38,11 @@ Usage of PanDownloader:
 如果不想每次命令行传参调用，可以使用配置文件：pandownloader.json
 ```json
 {
-    "bduss": "",
-    "dir": "",
-    "split": 32,
-    "size": 102400
+  "bduss": "",
+  "dir": "",
+  "size": 32,
+  "split": 20971520,
+  "chunk": 1048576
 }
 ```
 
