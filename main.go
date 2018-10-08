@@ -45,45 +45,46 @@ type task struct {
 const cfgFileName = "pandownloader.json"
 
 func main() {
-	err := parallelDownload(parseParams(cfgFileName))
+	params := parseParams()
+	err := parallelDownload(params)
 	if err != nil {
 		log.Fatalln(err)
 	}
 }
 
-func parallelDownload(cfg param) error {
-	filename, length, err := parseHeader(cfg.url, cfg.bduss)
+func parallelDownload(p param) error {
+	filename, length, err := parseHeader(p.url, p.bduss)
 	if err != nil {
 		return err
 	}
-	if cfg.name != "" {
-		filename = cfg.name
+	if p.name != "" {
+		filename = p.name
 	}
 
-	file, err := os.Create(path.Join(cfg.dir, filename))
+	file, err := os.Create(path.Join(p.dir, filename))
 	if err != nil {
 		return err
 	}
 	defer file.Close()
 
 	fmt.Printf("file size: %s\n", formatBytes(length))
-	if length < cfg.block*cfg.size {
-		cfg.block = map[bool]uint64{true: length / cfg.size, false: 1}[length/cfg.size > 0]
+	if length < p.block*p.size {
+		p.block = map[bool]uint64{true: length / p.size, false: 1}[length/p.size > 0]
 	}
 
 	fmt.Printf("download start")
 	startTime := time.Now()
 	var downloadedSize uint64 = 0
-	tasks := createTasks(cfg.url, file, length, cfg.block, cfg.chunk, &downloadedSize)
+	tasks := createTasks(p.url, file, length, p.block, p.chunk, p.bduss, &downloadedSize)
 
 	var wg sync.WaitGroup
-	for i := uint64(0); i < cfg.size; i++ {
+	for i := uint64(0); i < p.size; i++ {
 		wg.Add(1)
 
 		go func(tasks chan task) {
 			for t := range tasks {
 				for err := download(t); err != nil; {
-					if cfg.debug {
+					if p.debug {
 						log.Println(err)
 					}
 					err = download(t)
@@ -103,7 +104,7 @@ func parallelDownload(cfg param) error {
 	return nil
 }
 
-func createTasks(url string, file *os.File, length uint64, block uint64, chunkSize uint64,
+func createTasks(url string, file *os.File, length uint64, block uint64, chunkSize uint64, bduss string,
 	downloadedSize *uint64) *chan task {
 	tasks := make(chan task)
 	split := length / block
@@ -116,6 +117,7 @@ func createTasks(url string, file *os.File, length uint64, block uint64, chunkSi
 				start:          i * block,
 				end:            (i + 1) * block,
 				chunkSize:      chunkSize,
+				bduss:          bduss,
 				downloadedSize: downloadedSize,
 			}
 		}
@@ -126,6 +128,7 @@ func createTasks(url string, file *os.File, length uint64, block uint64, chunkSi
 				start:          split * block,
 				end:            length,
 				chunkSize:      chunkSize,
+				bduss:          bduss,
 				downloadedSize: downloadedSize,
 			}
 		}
@@ -213,7 +216,7 @@ func parseHeader(url string, bduss string) (filename string, length uint64, err 
 	return filename, length, nil
 }
 
-func parseParams(confFileName string) param {
+func parseParams() param {
 	var url = flag.String("url", "", "url to download, required")
 	var size = flag.Uint64("size", 32, "concurrent downloads size")
 	var block = flag.Uint64("block", 20971520, "max block size")
@@ -246,14 +249,14 @@ func parseParams(confFileName string) param {
 	flagSet := make(map[string]bool)
 	flag.Visit(func(f *flag.Flag) { flagSet[f.Name] = true })
 
-	return updateParamsWithCfgFile(p, confFileName, flagSet)
+	return updateParamsWithCfgFile(p, flagSet)
 }
 
-func updateParamsWithCfgFile(p param, confFileName string, flagSet map[string]bool) (result param) {
+func updateParamsWithCfgFile(p param, flagSet map[string]bool) (result param) {
 	result = p
 
 	ex, _ := os.Executable()
-	confPath := path.Join(filepath.Dir(ex), confFileName)
+	confPath := path.Join(filepath.Dir(ex), cfgFileName)
 	if _, err := os.Stat(confPath); !os.IsNotExist(err) {
 		bytes, err := ioutil.ReadFile(confPath)
 		if err != nil {
