@@ -279,7 +279,7 @@ func updateParamsWithCfgFile(p param, flagSet map[string]bool) (result param) {
 			result.chunk = fileCfg.Chunk
 		}
 		if !flagSet["bduss"] && !isSharedLink(p.url) {
-			result.bduss = fileCfg.Cookie["BDUSS"]
+			result.bduss = fileCfg.BDUSS
 		}
 		if !flagSet["dir"] {
 			result.dir = fileCfg.Dir
