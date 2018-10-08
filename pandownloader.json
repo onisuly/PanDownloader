@@ -1,5 +1,7 @@
 {
-  "bduss": "",
+  "cookie": {
+    "BDUSS": ""
+  },
   "dir": "",
   "size": 32,
   "block": 20971520,

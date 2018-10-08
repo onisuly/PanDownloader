@@ -38,10 +38,12 @@ Usage of pandownloader:
 如果不想每次命令行传参调用，可以使用配置文件：pandownloader.json
 ```json
 {
-  "bduss": "",
+  "cookie": {
+    "BDUSS": ""
+  },
   "dir": "",
   "size": 32,
-  "split": 20971520,
+  "block": 20971520,
   "chunk": 1048576
 }
 ```
