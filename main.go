@@ -14,6 +14,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,93 +22,81 @@ import (
 	"time"
 )
 
-const confName = "pandownloader.json"
-
-var url = flag.String("url", "", "url to download, required")
-var split = flag.Uint64("split", 32, "file split count")
-var size = flag.Uint64("size", 102400, "chunk size")
-var name = flag.String("name", "", "download file name")
-var bduss = flag.String("bduss", "", "BDUSS cookie")
-var dir = flag.String("dir", "", "download dir")
-var debug = flag.Bool("debug", false, "enable debug mode")
-
-func init() {
-	loadConf()
+type param struct {
+	url   string
+	size  uint64
+	block uint64
+	chunk uint64
+	name  string
+	bduss string
+	dir   string
+	debug bool
 }
 
-func main() {
-	if len(os.Args) == 2 {
-		*url = os.Args[1]
-	}
-	if *url == "" {
-		flag.PrintDefaults()
-		os.Exit(1)
-	}
+type task struct {
+	url            string
+	file           *os.File
+	start          uint64
+	end            uint64
+	chunkSize      uint64
+	downloadedSize *uint64
+	bduss          string
+}
 
-	err := parallelDownload(*url, *name, *split, *size)
+const cfgFileName = "pandownloader.json"
+
+func main() {
+	params := parseParams()
+	err := parallelDownload(params)
 	if err != nil {
 		log.Fatalln(err)
 	}
 }
 
-func parallelDownload(url string, name string, split uint64, chunkSize uint64) error {
-	filename, length, err := parseHeader(url)
+func parallelDownload(p param) error {
+	filename, length, err := parseHeader(p.url, p.bduss)
 	if err != nil {
 		return err
 	}
-	if name != "" {
-		filename = name
+	if p.name != "" {
+		filename = p.name
 	}
 
-	file, err := os.Create(path.Join(*dir, filename))
+	file, err := os.Create(path.Join(p.dir, filename))
 	if err != nil {
 		return err
 	}
 	defer file.Close()
 
 	fmt.Printf("file size: %s\n", formatBytes(length))
-	if length < uint64(chunkSize) {
-		chunkSize = length
-		split = 1
+	if length < p.block*p.size {
+		p.block = map[bool]uint64{true: length / p.size, false: 1}[length/p.size > 0]
 	}
-	lenSub := length / split
-	extra := length % split
 
-	fmt.Printf("download start, total %d block(s)\n", split)
+	fmt.Printf("download start")
 	startTime := time.Now()
 	var downloadedSize uint64 = 0
+	tasks := createTasks(p.url, file, length, p.block, p.chunk, p.bduss, &downloadedSize)
+
 	var wg sync.WaitGroup
-	for i := uint64(0); i < split; i++ {
+	for i := uint64(0); i < p.size; i++ {
 		wg.Add(1)
 
-		start := lenSub * i
-		end := start + lenSub
-
-		if i == split-1 {
-			end += extra
-		}
-
-		go func(start uint64, end uint64, chunkSize uint64, downloadedSize *uint64) {
-			for err := download(url, file, start, end, chunkSize, downloadedSize); err != nil; {
-				if *debug {
-					log.Println(err)
+		go func(tasks chan task) {
+			for t := range tasks {
+				for err := download(t); err != nil; {
+					if p.debug {
+						log.Println(err)
+					}
+					err = download(t)
 				}
-				err = download(url, file, start, end, chunkSize, downloadedSize)
 			}
 			wg.Done()
-		}(start, end, chunkSize, &downloadedSize)
+		}(*tasks)
 	}
 
 	wg.Add(1)
-	go func(wg *sync.WaitGroup) {
-		var oneSecondSize uint64 = 0
-		var preDownloadSize uint64 = 0
-		for range time.Tick(time.Second) {
-			oneSecondSize = downloadedSize - preDownloadSize
-			preDownloadSize = downloadedSize
-			printProgress(downloadedSize, oneSecondSize, length, wg)
-		}
-	}(&wg)
+	printProgress(length, &downloadedSize, func() { wg.Done() })
 
 	wg.Wait()
 
@@ -116,13 +105,47 @@ func parallelDownload(url string, name string, split uint64, chunkSize uint64) e
 	return nil
 }
 
-func download(url string, file *os.File, start uint64, end uint64, chunkSize uint64, downloadedSize *uint64) error {
-	req, err := http.NewRequest("GET", url, nil)
+func createTasks(url string, file *os.File, length uint64, block uint64, chunkSize uint64, bduss string,
+	downloadedSize *uint64) *chan task {
+	tasks := make(chan task)
+	split := length / block
+
+	go func() {
+		for i := uint64(0); i < split; i++ {
+			tasks <- task{
+				url:            url,
+				file:           file,
+				start:          i * block,
+				end:            (i + 1) * block,
+				chunkSize:      chunkSize,
+				bduss:          bduss,
+				downloadedSize: downloadedSize,
+			}
+		}
+		if length%block != 0 {
+			tasks <- task{
+				url:            url,
+				file:           file,
+				start:          split * block,
+				end:            length,
+				chunkSize:      chunkSize,
+				bduss:          bduss,
+				downloadedSize: downloadedSize,
+			}
+		}
+		close(tasks)
+	}()
+
+	return &tasks
+}
+
+func download(t task) error {
+	req, err := http.NewRequest("GET", t.url, nil)
 	if err != nil {
 		return err
 	}
-	req.Header.Add("Range", fmt.Sprintf("bytes=%d-%d", start, end))
-	req.AddCookie(&http.Cookie{Name: "BDUSS", Value: *bduss})
+	req.Header.Add("Range", fmt.Sprintf("bytes=%d-%d", t.start, t.end))
+	req.AddCookie(&http.Cookie{Name: "BDUSS", Value: t.bduss})
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
@@ -137,15 +160,15 @@ func download(url string, file *os.File, start uint64, end uint64, chunkSize uin
 	}
 
 	reader := bufio.NewReader(resp.Body)
-	position := start
-	part := make([]byte, chunkSize)
+	position := t.start
+	part := make([]byte, t.chunkSize)
 
 	for {
 		count, err := reader.Read(part)
-		file.WriteAt(part[:count], int64(position))
+		t.file.WriteAt(part[:count], int64(position))
 		position += uint64(count)
 
-		atomic.AddUint64(downloadedSize, uint64(count))
+		atomic.AddUint64(t.downloadedSize, uint64(count))
 		if err == io.EOF {
 			break
 		} else if err != nil {
@@ -156,12 +179,12 @@ func download(url string, file *os.File, start uint64, end uint64, chunkSize uin
 	return nil
 }
 
-func parseHeader(url string) (filename string, length uint64, err error) {
+func parseHeader(url string, bduss string) (filename string, length uint64, err error) {
 	req, err := http.NewRequest("HEAD", url, nil)
 	if err != nil {
 		return "", 0, err
 	}
-	req.AddCookie(&http.Cookie{Name: "BDUSS", Value: *bduss})
+	req.AddCookie(&http.Cookie{Name: "BDUSS", Value: bduss})
 
 	client := &http.Client{}
 	res, err := client.Do(req)
@@ -194,45 +217,98 @@ func parseHeader(url string) (filename string, length uint64, err error) {
 	return filename, length, nil
 }
 
-func loadConf() {
+func parseParams() param {
+	var url = flag.String("url", "", "url to download, required")
+	var size = flag.Uint64("size", 32, "concurrent downloads size")
+	var block = flag.Uint64("block", 20971520, "max block size")
+	var chunk = flag.Uint64("chunk", 1048576, "max chunk size")
+	var name = flag.String("name", "", "download file name")
+	var bduss = flag.String("bduss", "", "BDUSS cookie")
+	var dir = flag.String("dir", "", "download dir")
+	var debug = flag.Bool("debug", false, "enable debug mode")
 	flag.Parse()
 
+	if len(os.Args) == 2 {
+		*url = os.Args[1]
+	}
+	if *url == "" {
+		flag.PrintDefaults()
+		os.Exit(1)
+	}
+
+	var p = param{
+		url:   *url,
+		size:  *size,
+		block: *block,
+		chunk: *chunk,
+		name:  *name,
+		bduss: *bduss,
+		dir:   *dir,
+		debug: *debug,
+	}
+
+	flagSet := make(map[string]bool)
+	flag.Visit(func(f *flag.Flag) { flagSet[f.Name] = true })
+
+	return updateParamsWithCfgFile(p, flagSet)
+}
+
+func updateParamsWithCfgFile(p param, flagSet map[string]bool) (result param) {
+	result = p
+
 	ex, _ := os.Executable()
-	confPath := path.Join(filepath.Dir(ex), confName)
+	confPath := path.Join(filepath.Dir(ex), cfgFileName)
 	if _, err := os.Stat(confPath); !os.IsNotExist(err) {
-		var cfg panConf
 		bytes, err := ioutil.ReadFile(confPath)
 		if err != nil {
 			return
 		}
-		err = json.Unmarshal(bytes, &cfg)
+		var fileCfg cfgFile
+		err = json.Unmarshal(bytes, &fileCfg)
 		if err != nil {
 			return
 		}
 
-		flagSet := make(map[string]bool)
-		flag.Visit(func(f *flag.Flag) { flagSet[f.Name] = true })
-
-		if cfg.Split != 0 && !flagSet["split"] {
-			*split = cfg.Split
+		if fileCfg.Size != 0 && !flagSet["size"] {
+			result.size = fileCfg.Size
 		}
-		if cfg.Size != 0 && !flagSet["size"] {
-			*size = cfg.Size
+		if fileCfg.Block != 0 && !flagSet["block"] {
+			result.block = fileCfg.Block
 		}
-		if !flagSet["bduss"] {
-			*bduss = cfg.BDUSS
+		if fileCfg.Chunk != 0 && !flagSet["chunk"] {
+			result.chunk = fileCfg.Chunk
+		}
+		if !flagSet["bduss"] && !isSharedLink(p.url) {
+			result.bduss = fileCfg.BDUSS
 		}
 		if !flagSet["dir"] {
-			*dir = cfg.Dir
+			result.dir = fileCfg.Dir
+		}
+	}
+
+	return
+}
+
+func printProgress(length uint64, downloadedSize *uint64, done func()) {
+	var preDownloadedSize uint64 = 0
+	for range time.Tick(time.Second) {
+		currentDownloadedSize := *downloadedSize
+		oneSecondSize := currentDownloadedSize - preDownloadedSize
+		preDownloadedSize = currentDownloadedSize
+		fmt.Print("\033[2K")
+		fmt.Printf("\r%s / %s downloaded, speed: %s/s", formatBytes(currentDownloadedSize), formatBytes(length),
+			formatBytes(oneSecondSize))
+		if currentDownloadedSize >= length {
+			done()
+			return
 		}
 	}
 }
 
-func printProgress(downloadedSize uint64, oneSecondSize uint64, length uint64, wg *sync.WaitGroup) {
-	fmt.Print("\033[2K")
-	fmt.Printf("\r%s / %s downloaded, speed: %s/s", formatBytes(downloadedSize), formatBytes(length),
-		formatBytes(oneSecondSize))
-	if downloadedSize >= length {
-		wg.Done()
+func isSharedLink(url string) bool {
+	exp, err := regexp.Compile("&shareid=\\d+")
+	if err != nil {
+		return false
 	}
+	return exp.Match([]byte(url))
 }
