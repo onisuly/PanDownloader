@@ -14,7 +14,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -278,7 +277,7 @@ func updateParamsWithCfgFile(p param, flagSet map[string]bool) (result param) {
 		if fileCfg.Chunk != 0 && !flagSet["chunk"] {
 			result.chunk = fileCfg.Chunk
 		}
-		if !flagSet["bduss"] && !isSharedLink(p.url) {
+		if !flagSet["bduss"] {
 			result.bduss = fileCfg.BDUSS
 		}
 		if !flagSet["dir"] {
@@ -303,12 +302,4 @@ func printProgress(length uint64, downloadedSize *uint64, done func()) {
 			return
 		}
 	}
-}
-
-func isSharedLink(url string) bool {
-	exp, err := regexp.Compile("&shareid=\\d+")
-	if err != nil {
-		return false
-	}
-	return exp.Match([]byte(url))
 }
