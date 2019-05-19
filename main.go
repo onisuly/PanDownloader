@@ -166,7 +166,7 @@ func download(t task) error {
 		count, err := reader.Read(part)
 		_, ew := t.file.WriteAt(part[:count], int64(position))
 		if ew != nil {
-			log.Fatalln(ew)
+			return ew
 		}
 		position += uint64(count)
 
