@@ -65,7 +65,7 @@ func parallelDownload(p param) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer Close(file)
 
 	fmt.Printf("file size: %s\n", formatBytes(length))
 	if length < p.block*p.size {
@@ -151,7 +151,7 @@ func download(t task) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer Close(resp.Body)
 
 	if resp.StatusCode != 206 {
 		bytes, _ := ioutil.ReadAll(resp.Body)
@@ -193,7 +193,7 @@ func parseHeader(url string, bduss string) (filename string, length uint64, err 
 
 	if res.StatusCode != 200 {
 		resp, _ := client.Get(url)
-		defer resp.Body.Close()
+		defer Close(resp.Body)
 		bytes, _ := ioutil.ReadAll(resp.Body)
 		return "", 0, errors.New(string(bytes))
 	}
@@ -301,5 +301,12 @@ func printProgress(length uint64, downloadedSize *uint64, done func()) {
 			done()
 			return
 		}
+	}
+}
+
+func Close(c io.Closer) {
+	err := c.Close()
+	if err != nil {
+		log.Fatalln(err)
 	}
 }
