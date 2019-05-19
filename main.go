@@ -164,7 +164,10 @@ func download(t task) error {
 
 	for {
 		count, err := reader.Read(part)
-		t.file.WriteAt(part[:count], int64(position))
+		_, ew := t.file.WriteAt(part[:count], int64(position))
+		if ew != nil {
+			log.Fatalln(ew)
+		}
 		position += uint64(count)
 
 		atomic.AddUint64(t.downloadedSize, uint64(count))
